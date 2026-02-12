@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { 
   Cpu, History, ChevronRight, Zap, FileText, Crosshair, 
   BarChart3, Terminal, ShieldAlert, Loader2, Play, 
-  Target, DollarSign, Users, MessageSquare, Layers, Box
+  Target, DollarSign, Users, MessageSquare, Layers, Box, Trash2
 } from 'lucide-react';
 
 // --- 类型定义 ---
@@ -17,8 +17,22 @@ interface AnalysisResult {
   [key: string]: any;
 }
 
+// 升级版历史记录结构：包含输入(inputs)和输出(result)
 interface HistoryItem {
-  id: string; query: string; timestamp: string; data: AnalysisResult;
+  id: string; 
+  timestamp: string; 
+  modelName: string; // 用于列表显示的标题
+  inputs: {
+    model: string;
+    asin: string;
+    type: string;
+    price: string;
+    audience: string;
+    features: string;
+    scenario: string;
+    rufusQuestions: string;
+  };
+  result: AnalysisResult;
 }
 
 export default function XiberiaTerminal() {
@@ -40,17 +54,48 @@ export default function XiberiaTerminal() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistoryMobile, setShowHistoryMobile] = useState(false);
   
-  // --- 历史记录逻辑 ---
+  // --- 1. 初始化加载历史记录 ---
   useEffect(() => {
-    const saved = localStorage.getItem('xiberia_history');
-    if (saved) setHistory(JSON.parse(saved));
+    const saved = localStorage.getItem('xiberia_history_v2'); // 使用 v2 key 避免旧数据冲突
+    if (saved) {
+      try {
+        setHistory(JSON.parse(saved));
+      } catch (e) {
+        console.error("历史记录读取失败", e);
+      }
+    }
   }, []);
 
-  const saveToHistory = (newResult: AnalysisResult, modelName: string) => {
-    const newItem = { id: Date.now().toString(), query: modelName, timestamp: new Date().toLocaleTimeString(), data: newResult };
-    const updated = [newItem, ...history].slice(0, 10);
+  // --- 2. 保存历史记录 (核心升级) ---
+  const saveToHistory = (newResult: AnalysisResult, currentInputs: typeof formData) => {
+    const newItem: HistoryItem = {
+      id: Date.now().toString(),
+      timestamp: new Date().toLocaleString(), // 记录具体时间
+      modelName: currentInputs.model,
+      inputs: { ...currentInputs }, // 完整保存当时的输入
+      result: newResult // 完整保存当时的结果
+    };
+
+    // 新记录插到最前面，只保留最近 20 条
+    const updated = [newItem, ...history].slice(0, 20);
     setHistory(updated);
-    localStorage.setItem('xiberia_history', JSON.stringify(updated));
+    localStorage.setItem('xiberia_history_v2', JSON.stringify(updated));
+  };
+
+  // --- 3. 删除单条历史 ---
+  const deleteHistory = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation(); // 防止触发点击加载
+    const updated = history.filter(item => item.id !== id);
+    setHistory(updated);
+    localStorage.setItem('xiberia_history_v2', JSON.stringify(updated));
+  };
+
+  // --- 4. 加载历史记录到界面 ---
+  const loadHistoryItem = (item: HistoryItem) => {
+    setFormData(item.inputs); // 回填表单
+    setResult(item.result);   // 显示结果
+    setStatus(`✅ 已回溯历史记录: ${item.modelName} (${item.timestamp})`);
+    setShowHistoryMobile(false); // 移动端自动收起菜单
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -71,28 +116,29 @@ export default function XiberiaTerminal() {
     setStatus('⚡ 正在加密传输战术数据...');
 
     try {
-      // 1. 发送给 n8n
+      // 1. 发送给 API (写入飞书)
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      
+      if (!res.ok) throw new Error(data.error || data.msg || '请求失败');
 
       // 2. 轮询飞书结果
       let attempts = 0;
       const interval = setInterval(async () => {
         attempts++;
         try {
-          // 使用 model 字段去匹配结果
+          // 使用 recordId 精确查询
           const check = await fetch(`/api/result?recordId=${data.recordId}&model=${encodeURIComponent(formData.model)}`);
           const checkData = await check.json();
           
           if (checkData.status === 'done') {
             clearInterval(interval);
             setResult(checkData.data);
-            saveToHistory(checkData.data, formData.model);
+            saveToHistory(checkData.data, formData); // 保存完整历史
             setLoading(false);
             setStatus('✅ 战术分析完成。');
           } else {
@@ -120,21 +166,51 @@ export default function XiberiaTerminal() {
         <div className="absolute inset-0 bg-[linear-gradient(rgba(30,30,30,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(30,30,30,0.5)_1px,transparent_1px)] bg-[size:40px_40px] opacity-10" />
       </div>
 
-      {/* 侧边栏 */}
+      {/* 侧边栏 (历史记录) */}
       <aside className={`fixed inset-y-0 left-0 z-30 w-72 bg-black/60 backdrop-blur-xl border-r border-white/10 transform transition-transform duration-300 md:relative md:translate-x-0 flex flex-col ${showHistoryMobile ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-6 border-b border-white/10 flex justify-between items-center text-red-500 font-bold tracking-wider text-xl">
           <div className="flex gap-2"><Cpu className="animate-pulse" /> XIBERIA</div>
           <button onClick={() => setShowHistoryMobile(false)} className="md:hidden"><ChevronRight className="rotate-180" /></button>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4 flex gap-2"><History className="w-3 h-3" /> Mission Logs</h3>
+        
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-red-900/50">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest flex gap-2"><History className="w-3 h-3" /> Mission Logs</h3>
+            <span className="text-[10px] text-gray-600 bg-white/5 px-2 py-0.5 rounded-full">{history.length} RECORDS</span>
+          </div>
+          
+          {history.length === 0 && (
+            <div className="text-xs text-gray-600 text-center py-8 italic">暂无历史记录<br/>执行一次分析后自动保存</div>
+          )}
+
           {history.map((item) => (
-            <div key={item.id} onClick={() => {setFormData(prev => ({...prev, model: item.query})); setResult(item.data); setShowHistoryMobile(false);}} className="group cursor-pointer p-3 rounded bg-white/5 hover:border-red-500/50 hover:bg-white/10 relative overflow-hidden border border-transparent transition-all">
-              <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-600 opacity-0 group-hover:opacity-100" />
-              <div className="text-sm font-medium text-gray-200 truncate group-hover:text-red-400 font-mono">{item.query}</div>
-              <div className="text-xs text-gray-600 mt-1 flex justify-between"><span>{item.timestamp}</span><span className="text-[10px] bg-gray-800 px-1 rounded text-gray-400">DONE</span></div>
+            <div 
+              key={item.id} 
+              onClick={() => loadHistoryItem(item)}
+              className="group cursor-pointer p-3 rounded bg-white/5 hover:border-red-500/50 hover:bg-white/10 relative overflow-hidden border border-transparent transition-all"
+            >
+              <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="flex justify-between items-start">
+                <div className="text-sm font-medium text-gray-200 truncate group-hover:text-red-400 font-mono flex-1">{item.modelName}</div>
+                <button 
+                  onClick={(e) => deleteHistory(e, item.id)}
+                  className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-500 transition-opacity p-1"
+                  title="删除此记录"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+              <div className="text-[10px] text-gray-500 mt-1 flex justify-between items-center">
+                <span>{item.timestamp.split(' ')[0]}</span> 
+                <span className="bg-green-900/30 text-green-400 px-1.5 rounded">SUCCESS</span>
+              </div>
             </div>
           ))}
+        </div>
+        
+        {/* 底部装饰 */}
+        <div className="p-4 border-t border-white/10 text-[10px] text-gray-600 font-mono text-center">
+          SYSTEM MEMORY: ACTIVE
         </div>
       </aside>
 
@@ -158,7 +234,7 @@ export default function XiberiaTerminal() {
                 <form onSubmit={handleAnalyze} className="space-y-6">
                   {/* 第一行 */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <InputGroup label="产品型号 (Model)" icon={<Box/>} name="model" value={formData.model} onChange={handleInputChange} placeholder="例如: G7-Pro Wireless" required />
+                    <InputGroup label="产品型号 (MODEL)" icon={<Box/>} name="model" value={formData.model} onChange={handleInputChange} placeholder="例如: G7-Pro Wireless" required />
                     <InputGroup label="竞品 ASIN" icon={<Target/>} name="asin" value={formData.asin} onChange={handleInputChange} placeholder="例如: B0C5T9JM59" />
                   </div>
 
@@ -178,7 +254,7 @@ export default function XiberiaTerminal() {
                   {/* Rufus 问题 (全宽) */}
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                      <MessageSquare className="w-3 h-3 text-red-500" /> Rufus / 用户关切问题
+                      <MessageSquare className="w-3 h-3 text-red-500" /> RUFUS / 用户关切问题
                     </label>
                     <textarea 
                       name="rufusQuestions"
