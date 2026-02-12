@@ -9,6 +9,41 @@ import {
   Lightbulb, ArrowLeft
 } from 'lucide-react';
 
+/**
+ * 核心修改点：将子组件移到 Home 函数外部
+ * 这样 React 在重新渲染 Home 时，InputField 的引用保持不变，光标就不会丢失
+ */
+const InputField = ({ label, name, icon: Icon, placeholder, required = true, type = 'text', isTextArea = false, value, onChange }: any) => (
+  <div className="space-y-2">
+    <label className="block text-sm font-medium text-gray-700 flex items-center gap-1.5">
+      <Icon className="w-4 h-4 text-indigo-500" />
+      {label}
+      {required && <span className="text-red-500">*</span>}
+    </label>
+    {isTextArea ? (
+      <textarea
+        name={name}
+        required={required}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        rows={3}
+        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-y text-gray-800 placeholder-gray-400 bg-gray-50/50"
+      />
+    ) : (
+      <input
+        type={type}
+        name={name}
+        required={required}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all text-gray-800 placeholder-gray-400 bg-gray-50/50"
+      />
+    )}
+  </div>
+);
+
 export default function Home() {
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
@@ -38,7 +73,6 @@ export default function Home() {
       setAnalyzing(true);
       setStatus('任务已提交，AI 深度分析中...');
       
-      // 轮询逻辑
       const interval = setInterval(async () => {
         try {
           const check = await fetch(`/api/result?recordId=${data.recordId}&model=${encodeURIComponent(formData.model)}`);
@@ -65,38 +99,6 @@ export default function Home() {
 
   const handleChange = (e: any) => setFormData({...formData, [e.target.name]: e.target.value});
 
-  // 输入框组件（为了复用样式）
-  const InputField = ({ label, name, icon: Icon, placeholder, required = true, type = 'text', isTextArea = false }: any) => (
-    <div className="space-y-2">
-      <label className="block text-sm font-medium text-gray-700 flex items-center gap-1.5">
-        <Icon className="w-4 h-4 text-indigo-500" />
-        {label}
-        {required && <span className="text-red-500">*</span>}
-      </label>
-      {isTextArea ? (
-        <textarea
-          name={name}
-          required={required}
-          value={formData[name as keyof typeof formData]}
-          onChange={handleChange}
-          placeholder={placeholder}
-          rows={3}
-          className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-y text-gray-800 placeholder-gray-400 bg-gray-50/50"
-        />
-      ) : (
-        <input
-          type={type}
-          name={name}
-          required={required}
-          value={formData[name as keyof typeof formData]}
-          onChange={handleChange}
-          placeholder={placeholder}
-          className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all text-gray-800 placeholder-gray-400 bg-gray-50/50"
-        />
-      )}
-    </div>
-  );
-
   return (
     <main className="py-12 px-4 sm:px-6 lg:px-8 min-h-screen">
       <div className="max-w-4xl mx-auto">
@@ -116,33 +118,29 @@ export default function Home() {
           </p>
         </div>
 
-        {/* 主体内容区域：根据是否有结果切换显示 */}
+        {/* 主体内容区域 */}
         <div className={`transition-all duration-500 ${result ? 'opacity-0 translate-y-4 hidden' : 'opacity-100 translate-y-0'}`}>
           {!result && (
             <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
               <div className="p-8 sm:p-10">
                 <form onSubmit={handleSubmit} className="space-y-8">
-                  {/* 第一组：核心信息 */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <InputField label="产品型号" name="model" icon={Tag} placeholder="例如: G7-Pro Wireless" />
-                    <InputField label="竞品 ASIN" name="asin" icon={Search} placeholder="例如: B0C5T9JM59" />
+                    <InputField label="产品型号" name="model" icon={Tag} placeholder="例如: G7-Pro Wireless" value={formData.model} onChange={handleChange} />
+                    <InputField label="竞品 ASIN" name="asin" icon={Search} placeholder="例如: B0C5T9JM59" value={formData.asin} onChange={handleChange} />
                   </div>
 
-                  {/* 第二组：定位信息 */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <InputField label="产品类型" name="type" icon={Target} placeholder="例如: 游戏耳机" />
-                    <InputField label="目标定价" name="price" icon={DollarSign} placeholder="例如: 59.99" type="number" />
-                    <InputField label="目标人群" name="audience" icon={Users} placeholder="例如: 硬核玩家" />
+                    <InputField label="产品类型" name="type" icon={Target} placeholder="例如: 游戏耳机" value={formData.type} onChange={handleChange} />
+                    <InputField label="目标定价" name="price" icon={DollarSign} placeholder="例如: 59.99" type="number" value={formData.price} onChange={handleChange} />
+                    <InputField label="目标人群" name="audience" icon={Users} placeholder="例如: 硬核玩家" value={formData.audience} onChange={handleChange} />
                   </div>
 
-                  {/* 第三组：详细描述 */}
                   <div className="space-y-6">
-                    <InputField label="核心功能点" name="features" icon={ListChecks} placeholder="例如: 主动降噪, 40小时续航, 蓝牙5.3" />
-                    <InputField label="主要使用场景" name="scenario" icon={ImageIcon} placeholder="例如: 电竞房, 地铁通勤" />
-                    <InputField label="Rufus / 用户关切问题" name="rufusQuestions" icon={MessageSquareText} placeholder="例如: 戴眼镜佩戴是否舒适？麦克风收音效果如何？" isTextArea={true} required={false} />
+                    <InputField label="核心功能点" name="features" icon={ListChecks} placeholder="例如: 主动降噪, 40小时续航, 蓝牙5.3" value={formData.features} onChange={handleChange} />
+                    <InputField label="主要使用场景" name="scenario" icon={ImageIcon} placeholder="例如: 电竞房, 地铁通勤" value={formData.scenario} onChange={handleChange} />
+                    <InputField label="Rufus / 用户关切问题" name="rufusQuestions" icon={MessageSquareText} placeholder="例如: 戴眼镜佩戴是否舒适？麦克风收音效果如何？" isTextArea={true} required={false} value={formData.rufusQuestions} onChange={handleChange} />
                   </div>
 
-                  {/* 提交按钮 */}
                   <button
                     type="submit"
                     disabled={loading}
@@ -166,7 +164,6 @@ export default function Home() {
                   </button>
                 </form>
 
-                {/* 状态提示条 */}
                 {status && (
                   <div className={`mt-6 p-4 rounded-xl flex items-center justify-center gap-2 text-sm font-medium animate-pulse ${
                     status.includes('❌') ? 'bg-red-50 text-red-700' : 
@@ -214,7 +211,7 @@ export default function Home() {
   );
 }
 
-// 美化后的结果板块组件
+// 结果板块组件
 function ResultSection({ title, icon: Icon, content, reason, delay }: any) {
   if (!content) return null;
   return (
