@@ -3,43 +3,65 @@ import { NextResponse } from 'next/server';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    
-    // 解构出数据
     const { model, asin, type, features, scenario, audience, price, rufusQuestions } = body;
 
-    // 检查 Webhook 是否配置
-    const webhookUrl = process.env.N8N_WEBHOOK_URL;
-    if (!webhookUrl) throw new Error('N8N Webhook URL not configured');
-
-    console.log("Sending to n8n:", { model, asin, type }); // 方便在 Vercel 日志里调试
-
-    // --- 关键修改：参数名改回 n8n 熟悉的样子 ---
-    // 以前发的是什么，现在就发什么，不要改名！
-    const n8nPayload = {
-      model: model,           // 之前叫 modelName，改回 model
-      asin: asin,            // 保持 asin
-      type: type,            // 之前叫 productType，改回 type
-      price: price,          // 之前叫 targetPrice，改回 price
-      features: features,    // 保持 features
-      scenario: scenario,    // 之前叫 usageScenario，改回 scenario
-      audience: audience,    // 之前叫 targetAudience，改回 audience
-      rufusQuestions: rufusQuestions,
-      timestamp: new Date().toISOString()
-    };
-
-    const response = await fetch(webhookUrl, {
+    // 1. 获取飞书 Tenant Access Token
+    const tokenRes = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(n8nPayload),
+      body: JSON.stringify({ 
+        app_id: process.env.FEISHU_APP_ID, 
+        app_secret: process.env.FEISHU_APP_SECRET 
+      }),
+    });
+    const tokenData = await tokenRes.json();
+    const accessToken = tokenData.tenant_access_token;
+
+    // 2. 构造要写入飞书表 1 的数据
+    // 注意：这里的 Key 必须和你飞书表 1 的【列名】完全一致！
+    const fields = {
+      "型号": model,
+      "竞品ASIN": asin,
+      "产品类型": type,
+      "目标定价": Number(price), // 飞书数字列需要数字类型
+      "目标人群": audience,
+      "核心功能点": features,
+      "主要使用场景": scenario,
+      "Rufus / 用户关切问题": rufusQuestions,
+      "状态": "AI分析中..." // 给个初始状态，让前端知道开始了
+    };
+
+    // 3. 直接写入飞书表 1 (Create Record)
+    // 使用 POST 方法，这保证了每次都是【新增一行】，绝对不会覆盖第一行！
+    const createRes = await fetch(`https://open.feishu.cn/open-apis/bitable/v1/apps/${process.env.FEISHU_APP_TOKEN}/tables/${process.env.FEISHU_TABLE_ID}/records`, {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ fields: fields })
     });
 
-    // 处理 n8n 的响应
-    if (!response.ok) {
-        throw new Error(`N8N responded with ${response.status}`);
+    const createData = await createRes.json();
+
+    if (createData.code !== 0) {
+      console.error("Feishu Create Error:", createData);
+      throw new Error(`写入飞书失败: ${createData.msg}`);
     }
 
-    const data = await response.json();
-    return NextResponse.json(data);
+    // 4. 返回 record_id 给前端，前端拿这个 ID 去轮询表 3
+    const recordId = createData.data.record.record_id;
+    console.log("Created Feishu Record:", recordId);
+
+    // 这里我们不再直接调 n8n，而是假设飞书里的自动化监听到“新记录”后会自动触发 n8n
+    // 或者你在飞书里手动点按钮。
+    // 前端只管拿到 recordId 开始等结果。
+
+    return NextResponse.json({ 
+      success: true, 
+      recordId: recordId,
+      msg: "已写入飞书，等待自动化分析..." 
+    });
     
   } catch (error: any) {
     console.error("API Error:", error);
