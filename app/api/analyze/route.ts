@@ -17,22 +17,23 @@ export async function POST(request: Request) {
     const tokenData = await tokenRes.json();
     const accessToken = tokenData.tenant_access_token;
 
-    // 2. 构造要写入飞书表 1 的数据
-    // 注意：这里的 Key 必须和你飞书表 1 的【列名】完全一致！
+    // 2. 构造数据 (严格匹配你的截图)
+    // ⚠️ 修正点：根据截图，Rufus 那一列看起来没有空格，定价是左对齐(文本格式)
     const fields = {
       "型号": model,
       "竞品ASIN": asin,
       "产品类型": type,
-      "目标定价": Number(price), // 飞书数字列需要数字类型
+      "目标定价": String(price), // 改为 String，因为截图显示是文本列
       "目标人群": audience,
       "核心功能点": features,
       "主要使用场景": scenario,
-      "Rufus / 用户关切问题": rufusQuestions,
-      "状态": "AI分析中..." // 给个初始状态，让前端知道开始了
+      "Rufus/用户关切问题": rufusQuestions, // 👈 关键修改：去掉了斜杠两边的空格！
+      "状态": "AI分析中..." 
     };
 
-    // 3. 直接写入飞书表 1 (Create Record)
-    // 使用 POST 方法，这保证了每次都是【新增一行】，绝对不会覆盖第一行！
+    console.log("正在写入飞书字段:", Object.keys(fields)); // 方便在日志里排查
+
+    // 3. 写入飞书表 1 (Create Record)
     const createRes = await fetch(`https://open.feishu.cn/open-apis/bitable/v1/apps/${process.env.FEISHU_APP_TOKEN}/tables/${process.env.FEISHU_TABLE_ID}/records`, {
       method: 'POST',
       headers: { 
@@ -44,18 +45,18 @@ export async function POST(request: Request) {
 
     const createData = await createRes.json();
 
+    // 4. 错误处理
     if (createData.code !== 0) {
-      console.error("Feishu Create Error:", createData);
+      console.error("飞书写入报错:", JSON.stringify(createData));
+      // 如果是字段名错误，提示更具体
+      if (createData.code === 1250005 || createData.msg.includes("Field")) {
+         throw new Error(`列名不匹配！请检查飞书表头是否和代码完全一致。飞书返回: ${createData.msg}`);
+      }
       throw new Error(`写入飞书失败: ${createData.msg}`);
     }
 
-    // 4. 返回 record_id 给前端，前端拿这个 ID 去轮询表 3
     const recordId = createData.data.record.record_id;
-    console.log("Created Feishu Record:", recordId);
-
-    // 这里我们不再直接调 n8n，而是假设飞书里的自动化监听到“新记录”后会自动触发 n8n
-    // 或者你在飞书里手动点按钮。
-    // 前端只管拿到 recordId 开始等结果。
+    console.log("写入成功，Record ID:", recordId);
 
     return NextResponse.json({ 
       success: true, 
