@@ -6,7 +6,7 @@ import {
   Loader2, Send, Sparkles, Search, Tag, 
   Target, Users, DollarSign, MessageSquareText,
   Heading, ListChecks, FileText, Image as ImageIcon, LayoutTemplate,
-  Lightbulb, ArrowLeft, History, Trash2, Clock
+  Lightbulb, ArrowLeft, History, Trash2, Clock, ChevronDown, ChevronRight
 } from 'lucide-react';
 
 /**
@@ -49,14 +49,17 @@ export default function Home() {
   const [analyzing, setAnalyzing] = useState(false);
   const [status, setStatus] = useState('');
   const [result, setResult] = useState<any>(null);
-  const [history, setHistory] = useState<any[]>([]); // 历史记录列表
+  const [history, setHistory] = useState<any[]>([]); 
+  
+  // --- 核心修改：控制历史记录展开/收起的状态 ---
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false); 
 
   const [formData, setFormData] = useState({
     model: '', asin: '', type: '', features: '', 
     scenario: '', audience: '', price: '', rufusQuestions: ''
   });
 
-  // --- 1. 页面加载时：从浏览器缓存恢复历史记录 ---
+  // 页面加载时恢复历史记录
   useEffect(() => {
     const saved = localStorage.getItem('amazon_mission_history');
     if (saved) {
@@ -68,32 +71,30 @@ export default function Home() {
     }
   }, []);
 
-  // --- 2. 保存到历史记录 (保存输入+输出) ---
+  // 保存记录逻辑
   const saveRecord = (analysisResult: any) => {
     const newRecord = {
       id: Date.now(),
       time: new Date().toLocaleString(),
       modelName: formData.model,
-      inputData: { ...formData }, // 完整保存输入信息
-      resultData: analysisResult   // 完整保存输出信息
+      inputData: { ...formData },
+      resultData: analysisResult
     };
 
-    const updatedHistory = [newRecord, ...history].slice(0, 20); // 保留最近20条
+    const updatedHistory = [newRecord, ...history].slice(0, 20);
     setHistory(updatedHistory);
     localStorage.setItem('amazon_mission_history', JSON.stringify(updatedHistory));
   };
 
-  // --- 3. 加载选中的历史记录 ---
   const loadFromHistory = (record: any) => {
-    setFormData(record.inputData); // 恢复表单
-    setResult(record.resultData);   // 恢复结果
+    setFormData(record.inputData);
+    setResult(record.resultData);
     setStatus(`已加载历史记录: ${record.modelName}`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // --- 4. 删除单条记录 ---
   const deleteRecord = (e: React.MouseEvent, id: number) => {
-    e.stopPropagation(); // 阻止触发加载
+    e.stopPropagation();
     const updated = history.filter(item => item.id !== id);
     setHistory(updated);
     localStorage.setItem('amazon_mission_history', JSON.stringify(updated));
@@ -125,7 +126,7 @@ export default function Home() {
           if (checkData.status === 'done') {
             clearInterval(interval);
             setResult(checkData.data);
-            saveRecord(checkData.data); // 执行保存动作
+            saveRecord(checkData.data);
             setAnalyzing(false);
             setLoading(false);
             setStatus('分析完成！已存入历史记录。');
@@ -147,14 +148,26 @@ export default function Home() {
   return (
     <div className="flex flex-col lg:flex-row min-h-screen bg-gray-50">
       
-      {/* 左侧：历史记录查询区域 */}
-      <aside className="w-full lg:w-80 bg-white border-r border-gray-200 p-6 overflow-y-auto max-h-screen sticky top-0">
-        <div className="flex items-center gap-2 mb-8 border-b pb-4">
-          <History className="w-5 h-5 text-indigo-600" />
-          <h2 className="text-lg font-bold text-gray-900">历史记录查询</h2>
+      {/* --- 修改后的侧边栏：点击 Mission Logs 即可切换收放 --- */}
+      <aside className="w-full lg:w-80 bg-white border-r border-gray-200 p-6 overflow-y-auto max-h-screen sticky top-0 transition-all duration-300">
+        <div 
+          onClick={() => setIsHistoryOpen(!isHistoryOpen)} // 点击标题行切换开关
+          className="flex items-center justify-between mb-4 border-b pb-4 cursor-pointer group select-none"
+        >
+          <div className="flex items-center gap-2">
+            <History className="w-5 h-5 text-indigo-600" />
+            <h2 className="text-lg font-bold text-gray-900 group-hover:text-indigo-600 transition-colors">Mission Logs</h2>
+          </div>
+          {/* 状态指示箭头 */}
+          {isHistoryOpen ? (
+            <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-indigo-500 transition-colors" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-indigo-500 transition-colors" />
+          )}
         </div>
         
-        <div className="space-y-4">
+        {/* 受控显示的历史列表容器 */}
+        <div className={`space-y-4 transition-all duration-500 ease-in-out overflow-hidden ${isHistoryOpen ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
           {history.length === 0 && (
             <p className="text-sm text-gray-400 text-center py-10 italic">暂无记录，开启你的第一次分析吧</p>
           )}
@@ -181,11 +194,10 @@ export default function Home() {
         </div>
       </aside>
 
-      {/* 右侧：主操作与结果区域 */}
+      {/* 右侧主操作区 */}
       <main className="flex-1 py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto">
           
-          {/* 头部标题 */}
           <div className="text-center mb-12">
             <div className="flex justify-center mb-4">
               <div className="p-3 bg-indigo-100 rounded-2xl">
@@ -200,7 +212,6 @@ export default function Home() {
             </p>
           </div>
 
-          {/* 主体内容区域 */}
           <div className={`transition-all duration-500 ${result ? 'opacity-0 translate-y-4 hidden' : 'opacity-100 translate-y-0'}`}>
             {!result && (
               <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
@@ -260,7 +271,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* 结果展示区域 */}
           {result && (
             <div className="space-y-8 animate-fadeIn">
                <div className="flex justify-between items-center">
