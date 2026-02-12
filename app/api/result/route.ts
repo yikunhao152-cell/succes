@@ -7,40 +7,37 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const model = searchParams.get('model');
 
+  // 1. 安全校验
   if (!model) {
     return NextResponse.json({ error: 'Missing model parameter' }, { status: 400 });
   }
 
   try {
-    // 1. 获取 Token
-    // 加上 || '' 防止环境变量未定义时 TS 报错
-    const APP_ID = process.env.FEISHU_APP_ID || '';
-    const APP_SECRET = process.env.FEISHU_APP_SECRET || '';
-    const APP_TOKEN = process.env.FEISHU_APP_TOKEN || '';
-    const TABLE_3_ID = process.env.FEISHU_TABLE_3_ID || '';
-
+    // 2. 获取 Token (使用 any 绕过类型检查)
     const tokenRes = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
-        app_id: APP_ID, 
-        app_secret: APP_SECRET 
+        app_id: process.env.FEISHU_APP_ID || '', 
+        app_secret: process.env.FEISHU_APP_SECRET || '' 
       }),
     });
+    
     const tokenJson = await tokenRes.json();
-    // ⚠️ 关键修复：(tokenJson as any) 用于绕过类型检查
+    // ⚠️ 关键修复：加 (tokenJson as any) 防止报错
     const accessToken = (tokenJson as any).tenant_access_token;
 
-    // 2. 查表三
+    // 3. 查表三 (Output Table)
+    const TABLE_3_ID = process.env.FEISHU_TABLE_3_ID || '';
     const filter = `CurrentValue.[型号]="${model}"`;
-    const searchUrl = `https://open.feishu.cn/open-apis/bitable/v1/apps/${APP_TOKEN}/tables/${TABLE_3_ID}/records?filter=${encodeURIComponent(filter)}&sort=["CreatedTime DESC"]&pageSize=1`;
+    const searchUrl = `https://open.feishu.cn/open-apis/bitable/v1/apps/${process.env.FEISHU_APP_TOKEN}/tables/${TABLE_3_ID}/records?filter=${encodeURIComponent(filter)}&sort=["CreatedTime DESC"]&pageSize=1`;
 
     const searchRes = await fetch(searchUrl, {
       headers: { 'Authorization': `Bearer ${accessToken}` }
     });
     
     const searchJson = await searchRes.json();
-    // ⚠️ 关键修复：(searchJson as any) 用于绕过类型检查
+    // ⚠️ 关键修复：加 (searchJson as any) 防止报错
     const searchData = searchJson as any;
 
     if (searchData.code !== 0) {
