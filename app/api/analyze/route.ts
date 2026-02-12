@@ -17,21 +17,20 @@ export async function POST(request: Request) {
     const tokenData = await tokenRes.json();
     const accessToken = tokenData.tenant_access_token;
 
-    // 2. 构造数据 (严格匹配你的截图)
-    // ⚠️ 修正点：根据截图，Rufus 那一列看起来没有空格，定价是左对齐(文本格式)
+    // 2. 构造数据 (严格匹配你最新截图的列名)
     const fields = {
       "型号": model,
       "竞品ASIN": asin,
       "产品类型": type,
-      "目标定价": String(price), // 改为 String，因为截图显示是文本列
+      "目标定价": String(price),     // 截图显示是文本列
+      "功能点": features,            // ⚠️ 修正：匹配截图，去掉了“核心”
+      "使用场景": scenario,          // ⚠️ 修正：匹配截图，去掉了“主要”
       "目标人群": audience,
-      "核心功能点": features,
-      "主要使用场景": scenario,
-      "Rufus/用户关切问题": rufusQuestions, // 👈 关键修改：去掉了斜杠两边的空格！
+      "竞品rufusi问题": rufusQuestions, // ⚠️ 修正：匹配截图里那个特别的名字 "rufusi"
       "状态": "AI分析中..." 
     };
 
-    console.log("正在写入飞书字段:", Object.keys(fields)); // 方便在日志里排查
+    console.log("正在写入飞书字段:", Object.keys(fields)); 
 
     // 3. 写入飞书表 1 (Create Record)
     const createRes = await fetch(`https://open.feishu.cn/open-apis/bitable/v1/apps/${process.env.FEISHU_APP_TOKEN}/tables/${process.env.FEISHU_TABLE_ID}/records`, {
@@ -45,13 +44,9 @@ export async function POST(request: Request) {
 
     const createData = await createRes.json();
 
-    // 4. 错误处理
     if (createData.code !== 0) {
       console.error("飞书写入报错:", JSON.stringify(createData));
-      // 如果是字段名错误，提示更具体
-      if (createData.code === 1250005 || createData.msg.includes("Field")) {
-         throw new Error(`列名不匹配！请检查飞书表头是否和代码完全一致。飞书返回: ${createData.msg}`);
-      }
+      // 如果报错，抛出详细信息
       throw new Error(`写入飞书失败: ${createData.msg}`);
     }
 
