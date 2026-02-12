@@ -1,67 +1,72 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// 强制指定为动态路由
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const recordId = searchParams.get('recordId');
   const model = searchParams.get('model');
 
-  // 1. 安全校验：如果没有参数，直接返回错误
-  if (!recordId || !model) {
-    return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
-  }
-
-  // 2. 获取环境变量 (使用 || '' 防止 undefined 报错)
-  const APP_ID = process.env.FEISHU_APP_ID || '';
-  const APP_SECRET = process.env.FEISHU_APP_SECRET || '';
-  const APP_TOKEN = process.env.FEISHU_APP_TOKEN || '';
-  const TABLE_ID = process.env.FEISHU_TABLE_ID || '';
-  const TABLE_3_ID = process.env.FEISHU_TABLE_3_ID || '';
+  if (!model) return NextResponse.json({ error: 'Missing model' }, { status: 400 });
 
   try {
-    // 3. 获取飞书 Token
+    // 1. 获取 Token
     const tokenRes = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ app_id: APP_ID, app_secret: APP_SECRET }),
+      body: JSON.stringify({ 
+        app_id: process.env.FEISHU_APP_ID, 
+        app_secret: process.env.FEISHU_APP_SECRET 
+      }),
     });
-    const tokenJson = await tokenRes.json();
-    const accessToken = tokenJson.tenant_access_token;
+    const accessToken = (await tokenRes.json()).tenant_access_token;
 
-    // 4. 查表 1 状态
-    const checkRes = await fetch(`https://open.feishu.cn/open-apis/bitable/v1/apps/${APP_TOKEN}/tables/${TABLE_ID}/records/${recordId}`, {
+    // 2. 查表三 (Output Table)
+    // 只要型号匹配的记录
+    const TABLE_3_ID = process.env.FEISHU_TABLE_3_ID; 
+    
+    // 使用 filter 参数直接在飞书端筛选，效率更高
+    // 筛选条件：CurrentValue.[型号] = "输入的型号"
+    const filter = `CurrentValue.[型号]="${model}"`;
+    const searchRes = await fetch(`https://open.feishu.cn/open-apis/bitable/v1/apps/${process.env.FEISHU_APP_TOKEN}/tables/${TABLE_3_ID}/records?filter=${encodeURIComponent(filter)}&sort=["CreatedTime DESC"]&pageSize=1`, {
       headers: { 'Authorization': `Bearer ${accessToken}` }
     });
-    const checkJson = await checkRes.json();
-    // 使用 any 绕过复杂的飞书类型定义
-    const recordStatus = (checkJson as any).data?.record?.fields?.["状态"];
+    
+    const searchJson = await searchRes.json();
 
-    if (recordStatus !== '✅ 已生成') {
-      return NextResponse.json({ status: 'processing', currentStatus: recordStatus || '计算中' });
+    if (searchJson.code !== 0) {
+      console.error("查表三报错:", searchJson);
+      return NextResponse.json({ status: 'processing', currentStatus: '查询错误' });
     }
 
-    // 5. 查表 3 结果
-    const searchRes = await fetch(`https://open.feishu.cn/open-apis/bitable/v1/apps/${APP_TOKEN}/tables/${TABLE_3_ID}/records?pageSize=50`, {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
-    const searchJson = await searchRes.json();
-    const items = (searchJson as any).data?.items || [];
-    
-    // 6. 匹配结果
-    const match = items.reverse().find((i: any) => 
-      String(i.fields["型号"] || "").trim().toLowerCase() === String(model).trim().toLowerCase()
-    );
+    const items = searchJson.data?.items || [];
 
-    if (match) {
-      return NextResponse.json({ status: 'done', data: match.fields });
+    if (items.length > 0) {
+      // 找到了！
+      const fields = items[0].fields;
+      
+      // 映射数据：防止表头名字有细微差别，这里做一个容错映射
+      const mappedResult = {
+        "标题": fields["标题"],
+        "标题理由": fields["标题理由"],
+        // 兼容 '五点' 和 '五点描述'
+        "五点描述": fields["五点描述"] || fields["五点"] || fields["五点文案"], 
+        "五点描述理由": fields["五点描述理由"] || fields["五点理由"],
+        "商品描述": fields["商品描述"],
+        "商品描述理由": fields["商品描述理由"],
+        "主图设计方向": fields["主图设计方向"] || fields["主图方向"],
+        "主图设计方向理由": fields["主图设计方向理由"],
+        "A+设计方向": fields["A+设计方向"] || fields["A+页面"],
+        "A+设计方向理由": fields["A+设计方向理由"]
+      };
+      
+      return NextResponse.json({ status: 'done', data: mappedResult });
     } else {
-      return NextResponse.json({ status: 'processing', currentStatus: '数据同步中' });
+      // 还没生成
+      return NextResponse.json({ status: 'processing', currentStatus: 'AI 正在撰写文案...' });
     }
 
   } catch (error: any) {
-    console.error('API Error:', error);
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    console.error("API Error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
